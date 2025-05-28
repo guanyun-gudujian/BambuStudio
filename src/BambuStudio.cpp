@@ -1417,13 +1417,12 @@ int CLI::run(int argc, char **argv)
             const char* display = boost::nowide::getenv("DISPLAY");
             const char *wayland_display = boost::nowide::getenv("WAYLAND_DISPLAY");
             if (! ((display && *display) || (wayland_display && *wayland_display))) {
-            if (!(display && *display)) {
                 // DISPLAY not set.
                 BOOST_LOG_TRIVIAL(error) << "DISPLAY not set, GUI mode not available." << std::endl;
                 print_help(false);
                 // Indicate an error.
                 return 1;
-            }
+             }
    #endif // some linux / unix system
         Slic3r::GUI::GUI_InitParams params;
         params.argc = argc;
