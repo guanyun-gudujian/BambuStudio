@@ -1305,12 +1305,9 @@ int CLI::run(int argc, char **argv)
     save_main_thread_id();
 
 #ifdef __WXGTK__
-    // On Linux, wxGTK has no support for Wayland, and the app crashes on
-    // startup if gtk3 is used. This env var has to be set explicitly to
-    // instruct the window manager to fall back to X server mode.
-    ::setenv("GDK_BACKEND", "x11", /* replace */ true);
 
     ::setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", /* replace */ false);
+    ::setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", /* replace */ false);
 
     // Also on Linux, we need to tell Xlib that we will be using threads,
     // lest we crash when we fire up GStreamer.
@@ -1415,19 +1412,19 @@ int CLI::run(int argc, char **argv)
         BOOST_LOG_TRIVIAL(info) << "no action, start gui directly" << std::endl;
         ::Label::initSysFont();
 #ifdef SLIC3R_GUI
-    /*#if !defined(_WIN32) && !defined(__APPLE__)
-        // likely some linux / unix system
-        const char *display = boost::nowide::getenv("DISPLAY");
-        // const char *wayland_display = boost::nowide::getenv("WAYLAND_DISPLAY");
-        //if (! ((display && *display) || (wayland_display && *wayland_display))) {
-        if (! (display && *display)) {
-            // DISPLAY not set.
-            boost::nowide::cerr << "DISPLAY not set, GUI mode not available." << std::endl << std::endl;
-            this->print_help(false);
-            // Indicate an error.
-            return 1;
-        }
-    #endif // some linux / unix system*/
+    #if !defined(_WIN32) && !defined(__APPLE__)
+            // likely some linux / unix system
+            const char* display = boost::nowide::getenv("DISPLAY");
+            const char *wayland_display = boost::nowide::getenv("WAYLAND_DISPLAY");
+            if (! ((display && *display) || (wayland_display && *wayland_display))) {
+            if (!(display && *display)) {
+                // DISPLAY not set.
+                BOOST_LOG_TRIVIAL(error) << "DISPLAY not set, GUI mode not available." << std::endl;
+                print_help(false);
+                // Indicate an error.
+                return 1;
+            }
+   #endif // some linux / unix system
         Slic3r::GUI::GUI_InitParams params;
         params.argc = argc;
         params.argv = argv;
