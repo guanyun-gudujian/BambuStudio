@@ -3,11 +3,6 @@ project(GLEW)
 
 find_package(OpenGL REQUIRED)
 
-if(OpenGL_EGL_FOUND)
-    message(STATUS "building GLEW for EGL (hope that wxWidgets agrees, otherwise you won't have any output!)")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DGLEW_EGL")
-endif()
-
 add_library(GLEW src/glew.c)
 target_include_directories(GLEW PRIVATE include/)
 target_link_libraries(GLEW PUBLIC OpenGL::GL)
