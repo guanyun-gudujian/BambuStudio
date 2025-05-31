@@ -2184,6 +2184,9 @@ void GLCanvas3D::render(bool only_init)
 #endif // ENABLE_ENVIRONMENT_MAP
 
     const Size& cnv_size = get_canvas_size();
+    const auto t_cnv_width = cnv_size.get_width();
+    const auto t_cnv_height = cnv_size.get_height();
+    BOOST_LOG_TRIVIAL(info) << boost::format("canvas size: width = %1%, height = %2%") % t_cnv_width % t_cnv_height ;
     // Probably due to different order of events on Linux/GTK2, when one switched from 3D scene
     // to preview, this was called before canvas had its final size. It reported zero width
     // and the viewport was set incorrectly, leading to tripping glAsserts further down
