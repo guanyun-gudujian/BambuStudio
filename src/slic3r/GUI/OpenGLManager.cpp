@@ -840,7 +840,7 @@ wxGLCanvas* OpenGLManager::create_wxglcanvas(wxWindow& parent, EMSAAType msaa_ty
     if (! can_multisample())
         attribList[12] = 0;
 
-    return new wxGLCanvas(&parent, wxID_ANY, attribList, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS);
+    return new wxGLCanvas(&parent, wxID_ANY, attribList, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS | wxFULL_REPAINT_ON_RESIZE);
 }
 
 void OpenGLManager::set_cut_plane_color(ColorRGBA color) {
