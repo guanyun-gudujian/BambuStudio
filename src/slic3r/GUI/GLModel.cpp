@@ -545,7 +545,8 @@ void GLModel::init_from(const InitializationData& data)
             m_bounding_box.merge(entity.positions[i].cast<double>());
         }
 
-        send_to_gpu(rdata, vertices, indices);
+        rdata.geometry.vertices = std::move(vertices);
+        rdata.geometry.indices = std::move(indices);
         m_render_data.emplace_back(rdata);
     }
 }
@@ -579,7 +580,8 @@ void GLModel::init_from(const indexed_triangle_set& its, const BoundingBoxf3 &bb
     data.indices_count = static_cast<unsigned int>(indices.size());
     m_bounding_box = bbox;
 
-    send_to_gpu(data, vertices, indices);
+    data.geometry.vertices = std::move(vertices);
+    data.geometry.indices = std::move(indices);
     m_render_data.emplace_back(data);
 }
 
@@ -821,6 +823,9 @@ void GLModel::render_geometry() const {
 
 void GLModel::render_geometry(int i,const std::pair<size_t, size_t> &range) const
 {
+    if (i < 0) {
+        return;
+    }
     if (range.second == range.first) return;
 
     const auto shader = wxGetApp().get_current_shader();
@@ -829,10 +834,9 @@ void GLModel::render_geometry(int i,const std::pair<size_t, size_t> &range) cons
     auto &render_data = m_render_data[i];
     // sends data to gpu if not done yet
     if (render_data.vbo_id == 0 || render_data.ibo_id == 0) {
-        auto origin_data = const_cast<RenderData*>(&render_data);
-        if (render_data.geometry.vertices_count() > 0 && render_data.geometry.indices_count() > 0 &&
-            !send_to_gpu(*origin_data, render_data.geometry.vertices, render_data.geometry.indices))
+        if (!(const_cast<GLModel*>(this))->send_to_gpu(static_cast<uint32_t>(i))) {
             return;
+        }
     }
     const Geometry &data = render_data.geometry;
 
@@ -953,8 +957,9 @@ void GLModel::render_geometry_instance(unsigned int instance_mats_vbo, unsigned 
     auto &render_data = m_render_data[0];
     // sends data to gpu if not done yet
     if (render_data.vbo_id == 0 || render_data.ibo_id == 0) {
-        if (render_data.geometry.vertices_count() > 0 && render_data.geometry.indices_count() > 0 && !send_to_gpu(render_data.geometry))
+        if (!(const_cast<GLModel*>(this))->send_to_gpu(0)) {
             return;
+        }
     }
     if (instance_mats_vbo == 0) {
         return;
@@ -1119,18 +1124,16 @@ void GLModel::set_visible(bool flag) {
     }
 }
 
-bool GLModel::send_to_gpu(Geometry &geometry)
+bool GLModel::send_to_gpu(uint32_t index)
 {
-    if (m_render_data.size() != 1) { return false; }
-    auto& render_data = m_render_data[0];
+    if (m_render_data.size() <= index) { return false; }
+    auto& render_data = m_render_data[index];
     if (render_data.vbo_id > 0 || render_data.ibo_id > 0) {
-        assert(false);
-        return false;
+        return true;
     }
 
     Geometry &data = render_data.geometry;
     if (data.vertices.empty() || data.indices.empty()) {
-        assert(false);
         return false;
     }
 
@@ -1167,33 +1170,6 @@ bool GLModel::send_to_gpu(Geometry &geometry)
     }
     render_data.indices_count = indices_count;
     data.indices                = std::vector<unsigned int>();
-
-    return true;
-}
-
-bool GLModel::send_to_gpu(RenderData &data, const std::vector<float> &vertices, const std::vector<unsigned int> &indices) const
-{
-    if (data.vbo_id > 0 || data.ibo_id > 0) {
-        assert(false);
-        return false;
-    }
-
-    if (vertices.empty() || indices.empty()) {
-        assert(false);
-        return false;
-    }
-
-    // vertex data -> send to gpu
-    glsafe(::glGenBuffers(1, &data.vbo_id));
-    glsafe(::glBindBuffer(GL_ARRAY_BUFFER, data.vbo_id));
-    glsafe(::glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW));
-    glsafe(::glBindBuffer(GL_ARRAY_BUFFER, 0));
-
-    // indices data -> send to gpu
-    glsafe(::glGenBuffers(1, &data.ibo_id));
-    glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, data.ibo_id));
-    glsafe(::glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW));
-    glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
 
     return true;
 }
