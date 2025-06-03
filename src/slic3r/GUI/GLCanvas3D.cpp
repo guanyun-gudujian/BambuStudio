@@ -1423,10 +1423,6 @@ bool GLCanvas3D::init()
     if (m_main_toolbar.is_enabled())
         m_layers_editing.init();
 
-    // on linux the gl context is not valid until the canvas is not shown on screen
-    // we defer the geometry finalization of volumes until the first call to render()
-    m_volumes.finalize_geometry(true);
-
     BOOST_LOG_TRIVIAL(info) <<__FUNCTION__<< ": before gizmo init";
     if (m_gizmos.is_enabled() && !m_gizmos.init())
         std::cout << "Unable to initialize gizmos: please, check that all the required textures are available" << std::endl;
@@ -2667,11 +2663,6 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
     if (m_canvas == nullptr || m_config == nullptr || m_model == nullptr)
         return;
 
-    if (!m_initialized)
-        return;
-
-    _set_current(true);
-
     m_hover_volume_idxs.clear();
 
     struct ModelVolumeState {
@@ -2729,7 +2720,11 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
     PrinterTechnology printer_technology = current_printer_technology();
 
     // BBS: support wipe tower for multi-plates
-    PartPlateList& ppl = wxGetApp().plater()->get_partplate_list();
+    const auto p_plater = wxGetApp().plater();
+    if (!p_plater) {
+        return;
+    }
+    PartPlateList& ppl = p_plater->get_partplate_list();
     int n_plates = ppl.get_plate_count();
     std::vector<int> volume_idxs_wipe_tower_old(n_plates, -1);
 
