@@ -1180,45 +1180,11 @@ void GUI_App::post_init()
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", slow bootup, won't render gl here.";
     }
     if (!switch_to_3d) {
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", begin load_gl_resources";
         mainframe->Freeze();
-        plater_->canvas3D()->enable_render(false);
-        mainframe->select_tab(size_t(MainFrame::tp3DEditor));
-        plater_->select_view_3D("3D");
-        //BBS init the opengl resource here
-//#ifdef __linux__
-        if (plater_->canvas3D()->get_wxglcanvas()->IsShownOnScreen()&&plater_->canvas3D()->make_current_for_postinit()) {
-//#endif
-            Size canvas_size = plater_->canvas3D()->get_canvas_size();
-            wxGetApp().imgui()->set_display_size(static_cast<float>(canvas_size.get_width()), static_cast<float>(canvas_size.get_height()));
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", start to init opengl";
-            wxGetApp().init_opengl();
-
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished init opengl";
-            plater_->canvas3D()->init();
-
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished init canvas3D";
-            wxGetApp().imgui()->new_frame();
-
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished init imgui frame";
-            plater_->canvas3D()->enable_render(true);
-
-            if (!slow_bootup) {
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", start to render a first frame for test";
-                plater_->canvas3D()->render(false);
-                BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished rendering a first frame for test";
-            }
-//#ifdef __linux__
-        }
-        else {
-            BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << "Found glcontext not ready, postpone the init";
-        }
-//#endif
         if (is_editor())
             mainframe->select_tab(size_t(0));
         mainframe->Thaw();
         plater_->trigger_restore_project(1);
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", end load_gl_resources";
     }
 //#endif
 
