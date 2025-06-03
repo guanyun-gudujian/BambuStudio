@@ -256,8 +256,15 @@ void GLIndexedVertexArray::release_geometry()
 
 void GLIndexedVertexArray::render(const std::shared_ptr<GLShaderProgram>& shader) const
 {
-    assert(this->vertices_and_normals_interleaved_VBO_id != 0);
-    assert(this->triangle_indices_VBO_id != 0 || this->quad_indices_VBO_id != 0);
+    if (vertices_and_normals_interleaved_VBO_id == 0) {
+        const_cast<GLIndexedVertexArray*>(this)->finalize_geometry(true);
+    }
+    if (vertices_and_normals_interleaved_VBO_id == 0) {
+        return;
+    }
+    if (triangle_indices_VBO_id == 0 && quad_indices_VBO_id == 0) {
+        return;
+    }
 
     glsafe(::glBindBuffer(GL_ARRAY_BUFFER, this->vertices_and_normals_interleaved_VBO_id));
 
@@ -1362,7 +1369,6 @@ int GLVolumeCollection::load_object_volume(
 
         v.indexed_vertex_array->load_mesh(mesh);
 #endif // ENABLE_SMOOTH_NORMALS
-        v.indexed_vertex_array->finalize_geometry(opengl_initialized);
     }
     v.composite_id = GLVolume::CompositeID(obj_idx, volume_idx, instance_idx);
     if (model_volume->is_model_part())
