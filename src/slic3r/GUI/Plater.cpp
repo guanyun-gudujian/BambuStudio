@@ -8149,6 +8149,12 @@ void Plater::priv::set_current_panel(wxPanel* panel, bool no_slice)
 
     current_panel->SetFocusFromKbd();
 
+#ifdef __linux__
+    const bool b_sider_collapsed = wxGetApp().plater()->is_sidebar_collapsed();
+    wxGetApp().plater()->collapse_sidebar(!b_sider_collapsed);
+    wxGetApp().plater()->collapse_sidebar(b_sider_collapsed);
+#endif
+
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": successfully, exit");
 }
 
