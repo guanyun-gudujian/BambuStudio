@@ -206,8 +206,7 @@ namespace GUI {
         void set_visible(bool flag);
         bool get_visible() const { return m_visible; }
     private:
-        bool send_to_gpu(Geometry& geometry);
-        bool send_to_gpu(RenderData &data, const std::vector<float> &vertices, const std::vector<unsigned int> &indices) const;
+        bool send_to_gpu(uint32_t index);
     };
 
     // create an arrow with cylindrical stem and conical tip, with the given dimensions and resolution
