@@ -321,20 +321,6 @@ float GCodeViewer::Extrusions::Range::get_value_at_step(int step) const {
         return std::exp(std::log(min) + static_cast<float>(step) * step_size);
     }
 }
-GCodeViewer::SequentialRangeCap::~SequentialRangeCap() {
-    if (ibo > 0)
-        glsafe(::glDeleteBuffers(1, &ibo));
-}
-
-void GCodeViewer::SequentialRangeCap::reset() {
-    if (ibo > 0)
-        glsafe(::glDeleteBuffers(1, &ibo));
-
-    buffer = nullptr;
-    ibo = 0;
-    vbo = 0;
-    color = { 0.0f, 0.0f, 0.0f, 1.0f };
-}
 
 void GCodeViewer::SequentialView::Marker::init(std::string filename)
 {
@@ -2303,74 +2289,36 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
                 const float sq_length = (curr_position - prev_position).squaredNorm();
 
                 if ((is_first_segment || vbuffer_size == 0) && i == 0) {
-                    if (is_first_segment && i == 0)
-                        // starting cap triangles
-                        append_starting_cap_triangles(indices, first_seg_v_offsets);
-                    // dummy triangles outer corner cap
-                    append_dummy_cap(indices, vbuffer_size);
-                    // stem triangles
-                    append_stem_triangles(indices, first_seg_v_offsets);
+                                append_starting_cap_triangles(indices, first_seg_v_offsets);
+                                // stem triangles
+                                append_stem_triangles(indices, first_seg_v_offsets);
 
-                    vbuffer_size += 8;
-                } else {
-                    float displacement = 0.0f;
-                    float cos_dir = prev_dir.dot(dir);
-                    if (cos_dir > -0.9998477f) {
-                        // if the angle between adjacent segments is smaller than 179 degrees
-                        const Vec3f med_dir = (prev_dir + dir).normalized();
-                        const float half_width = 0.5f * last_path.width;
-                        displacement = half_width * ::tan(::acos(std::clamp(dir.dot(med_dir), -1.0f, 1.0f)));
-                    }
+                                // ending cap triangles
+                                append_ending_cap_triangles(indices, first_seg_v_offsets);
 
-                    float sq_displacement = sqr(displacement);
-                    bool can_displace = displacement > 0.0f && sq_displacement < sq_prev_length&& sq_displacement < sq_length;
+                                // dummy triangles outer corner cap
+                                append_dummy_cap(indices, vbuffer_size);
+                                append_dummy_cap(indices, vbuffer_size);
 
-                    bool is_right_turn = prev_up.dot(prev_dir.cross(dir)) <= 0.0f;
-                    // whether the angle between adjacent segments is greater than 45 degrees
-                    bool is_sharp = cos_dir < 0.7071068f;
+                                vbuffer_size += 8;
+                            }
+                            else {
+                                // stem triangles
+                                non_first_seg_v_offsets = convert_vertices_offset(vbuffer_size, { -4, 0, -2, 1, 2, 3, 4, 5 });
 
-                    bool right_displaced = false;
-                    bool left_displaced = false;
+                                append_starting_cap_triangles(indices, non_first_seg_v_offsets);
+                                append_stem_triangles(indices, non_first_seg_v_offsets);
+                                append_ending_cap_triangles(indices, non_first_seg_v_offsets);
 
-                    if (!is_sharp && can_displace) {
-                        if (is_right_turn)
-                            left_displaced = true;
-                        else
-                            right_displaced = true;
-                    }
+                                store_triangle(indices, vbuffer_size - 4, vbuffer_size + 1, vbuffer_size - 1);
+                                store_triangle(indices, vbuffer_size + 1, vbuffer_size - 2, vbuffer_size - 1);
 
-                    // triangles outer corner cap
-                    if (is_right_turn) {
-                        if (left_displaced)
-                            // dummy triangles
-                            append_dummy_cap(indices, vbuffer_size);
-                        else {
-                            store_triangle(indices, vbuffer_size - 4, vbuffer_size + 1, vbuffer_size - 1);
-                            store_triangle(indices, vbuffer_size + 1, vbuffer_size - 2, vbuffer_size - 1);
-                        }
-                    }
-                    else {
-                        if (right_displaced)
-                            // dummy triangles
-                            append_dummy_cap(indices, vbuffer_size);
-                        else {
-                            store_triangle(indices, vbuffer_size - 4, vbuffer_size - 3, vbuffer_size + 0);
-                            store_triangle(indices, vbuffer_size - 3, vbuffer_size - 2, vbuffer_size + 0);
-                        }
-                    }
-                    // stem triangles
-                    non_first_seg_v_offsets = convert_vertices_offset(vbuffer_size, { -4, 0, -2, 1, 2, 3, 4, 5 });
-                    append_stem_triangles(indices, non_first_seg_v_offsets);
-                    vbuffer_size += 6;
-                }
-                prev_dir = dir;
-                prev_up = up;
-                sq_prev_length = sq_length;
+                                store_triangle(indices, vbuffer_size - 4, vbuffer_size - 3, vbuffer_size + 0);
+                                store_triangle(indices, vbuffer_size - 3, vbuffer_size - 2, vbuffer_size + 0);
+
+                                vbuffer_size += 6;
+                            }
             }
-
-            if (next != nullptr && (curr.type != next->type || !last_path.matches(*next)))
-                // ending cap triangles
-                append_ending_cap_triangles(indices, (is_first_segment && !curr.is_arc_move_with_interpolation_points()) ? first_seg_v_offsets : non_first_seg_v_offsets);
 
             last_path.sub_paths.back().last = { ibuffer_id, indices.size() - 1, move_id, curr.position };
     };
@@ -2657,203 +2605,10 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
     for (size_t i = 0; i < m_moves_count - biased_seams_ids.size(); i++)
         m_ssid_to_moveid_map.push_back(extract_move_id(i));
 
-    //BBS: smooth toolpaths corners for the given TBuffer using triangles
-    auto smooth_triangle_toolpaths_corners = [&gcode_result, this](const TBuffer& t_buffer, MultiVertexBuffer& v_multibuffer) {
-        auto extract_position_at = [](const VertexBuffer& vertices, size_t offset) {
-            return Vec3f(vertices[offset + 0], vertices[offset + 1], vertices[offset + 2]);
-        };
-        auto update_position_at = [](VertexBuffer& vertices, size_t offset, const Vec3f& position) {
-            vertices[offset + 0] = position.x();
-            vertices[offset + 1] = position.y();
-            vertices[offset + 2] = position.z();
-        };
-        auto match_right_vertices_with_internal_point = [&](const Path::Sub_Path& prev_sub_path, const Path::Sub_Path& next_sub_path,
-            size_t curr_s_id, bool is_internal_point, size_t interpolation_point_id, size_t vertex_size_floats, const Vec3f& displacement_vec) {
-            if (&prev_sub_path == &next_sub_path || is_internal_point) { // previous and next segment are both contained into to the same vertex buffer
-                VertexBuffer& vbuffer = v_multibuffer[prev_sub_path.first.b_id];
-                // offset into the vertex buffer of the next segment 1st vertex
-                size_t temp_offset = prev_sub_path.last.s_id - curr_s_id;
-                for (size_t i = prev_sub_path.last.s_id; i > curr_s_id; i--) {
-                    size_t move_id = m_ssid_to_moveid_map[i];
-                    temp_offset += (gcode_result.moves[move_id].is_arc_move() ? gcode_result.moves[move_id].interpolation_points.size() : 0);
-                }
-                if (is_internal_point) {
-                    size_t move_id = m_ssid_to_moveid_map[curr_s_id];
-                    temp_offset += (gcode_result.moves[move_id].interpolation_points.size() - interpolation_point_id);
-                }
-                const size_t next_1st_offset = temp_offset * 6 * vertex_size_floats;
-                // offset into the vertex buffer of the right vertex of the previous segment
-                const size_t prev_right_offset = prev_sub_path.last.i_id - next_1st_offset - 3 * vertex_size_floats;
-                // new position of the right vertices
-                const Vec3f shared_vertex = extract_position_at(vbuffer, prev_right_offset) + displacement_vec;
-                // update previous segment
-                update_position_at(vbuffer, prev_right_offset, shared_vertex);
-                // offset into the vertex buffer of the right vertex of the next segment
-                const size_t next_right_offset = prev_sub_path.last.i_id - next_1st_offset;
-                // update next segment
-                update_position_at(vbuffer, next_right_offset, shared_vertex);
-            }
-            else { // previous and next segment are contained into different vertex buffers
-                VertexBuffer& prev_vbuffer = v_multibuffer[prev_sub_path.first.b_id];
-                VertexBuffer& next_vbuffer = v_multibuffer[next_sub_path.first.b_id];
-                // offset into the previous vertex buffer of the right vertex of the previous segment
-                const size_t prev_right_offset = prev_sub_path.last.i_id - 3 * vertex_size_floats;
-                // new position of the right vertices
-                const Vec3f shared_vertex = extract_position_at(prev_vbuffer, prev_right_offset) + displacement_vec;
-                // update previous segment
-                update_position_at(prev_vbuffer, prev_right_offset, shared_vertex);
-                // offset into the next vertex buffer of the right vertex of the next segment
-                const size_t next_right_offset = next_sub_path.first.i_id + 1 * vertex_size_floats;
-                // update next segment
-                update_position_at(next_vbuffer, next_right_offset, shared_vertex);
-            }
-        };
-        //BBS: modify a lot of this function to support arc move
-        auto match_left_vertices_with_internal_point = [&](const Path::Sub_Path& prev_sub_path, const Path::Sub_Path& next_sub_path,
-            size_t curr_s_id, bool is_internal_point, size_t interpolation_point_id, size_t vertex_size_floats, const Vec3f& displacement_vec) {
-            if (&prev_sub_path == &next_sub_path || is_internal_point) { // previous and next segment are both contained into to the same vertex buffer
-                VertexBuffer& vbuffer = v_multibuffer[prev_sub_path.first.b_id];
-                // offset into the vertex buffer of the next segment 1st vertex
-                size_t temp_offset = prev_sub_path.last.s_id - curr_s_id;
-                for (size_t i = prev_sub_path.last.s_id; i > curr_s_id; i--) {
-                    size_t move_id = m_ssid_to_moveid_map[i];
-                    temp_offset += (gcode_result.moves[move_id].is_arc_move() ? gcode_result.moves[move_id].interpolation_points.size() : 0);
-                }
-                if (is_internal_point) {
-                    size_t move_id = m_ssid_to_moveid_map[curr_s_id];
-                    temp_offset += (gcode_result.moves[move_id].interpolation_points.size() - interpolation_point_id);
-                }
-                const size_t next_1st_offset = temp_offset * 6 * vertex_size_floats;
-                // offset into the vertex buffer of the left vertex of the previous segment
-                const size_t prev_left_offset = prev_sub_path.last.i_id - next_1st_offset - 1 * vertex_size_floats;
-                // new position of the left vertices
-                const Vec3f shared_vertex = extract_position_at(vbuffer, prev_left_offset) + displacement_vec;
-                // update previous segment
-                update_position_at(vbuffer, prev_left_offset, shared_vertex);
-                // offset into the vertex buffer of the left vertex of the next segment
-                const size_t next_left_offset = prev_sub_path.last.i_id - next_1st_offset + 1 * vertex_size_floats;
-                // update next segment
-                update_position_at(vbuffer, next_left_offset, shared_vertex);
-            }
-            else { // previous and next segment are contained into different vertex buffers
-                VertexBuffer& prev_vbuffer = v_multibuffer[prev_sub_path.first.b_id];
-                VertexBuffer& next_vbuffer = v_multibuffer[next_sub_path.first.b_id];
-                // offset into the previous vertex buffer of the left vertex of the previous segment
-                const size_t prev_left_offset = prev_sub_path.last.i_id - 1 * vertex_size_floats;
-                // new position of the left vertices
-                const Vec3f shared_vertex = extract_position_at(prev_vbuffer, prev_left_offset) + displacement_vec;
-                // update previous segment
-                update_position_at(prev_vbuffer, prev_left_offset, shared_vertex);
-                // offset into the next vertex buffer of the left vertex of the next segment
-                const size_t next_left_offset = next_sub_path.first.i_id + 3 * vertex_size_floats;
-                // update next segment
-                update_position_at(next_vbuffer, next_left_offset, shared_vertex);
-            }
-        };
-
-        size_t vertex_size_floats = t_buffer.vertices.vertex_size_floats();
-        for (const Path& path : t_buffer.paths) {
-            //BBS: the two segments of the path sharing the current vertex may belong
-            //to two different vertex buffers
-            size_t prev_sub_path_id = 0;
-            size_t next_sub_path_id = 0;
-            const size_t path_vertices_count = path.vertices_count();
-            const float half_width = 0.5f * path.width;
-            // BBS: modify a lot to support arc move which has internal points
-            for (size_t j = 1; j < path_vertices_count; ++j) {
-                size_t curr_s_id = path.sub_paths.front().first.s_id + j;
-                size_t move_id = m_ssid_to_moveid_map[curr_s_id];
-                int interpolation_points_num = gcode_result.moves[move_id].is_arc_move_with_interpolation_points()?
-                                                    gcode_result.moves[move_id].interpolation_points.size() : 0;
-                int loop_num = interpolation_points_num;
-                //BBS: select the subpaths which contains the previous/next segments
-                if (!path.sub_paths[prev_sub_path_id].contains(curr_s_id))
-                    ++prev_sub_path_id;
-                if (j == path_vertices_count - 1) {
-                    if (!gcode_result.moves[move_id].is_arc_move_with_interpolation_points())
-                        break;   // BBS: the last move has no internal point.
-                    loop_num--;  //BBS: don't need to handle the endpoint of the last arc move of path
-                    next_sub_path_id = prev_sub_path_id;
-                } else {
-                    if (!path.sub_paths[next_sub_path_id].contains(curr_s_id + 1))
-                        ++next_sub_path_id;
-                }
-                const Path::Sub_Path& prev_sub_path = path.sub_paths[prev_sub_path_id];
-                const Path::Sub_Path& next_sub_path = path.sub_paths[next_sub_path_id];
-
-                // BBS: smooth triangle toolpaths corners including arc move which has internal interpolation point
-                for (int k = 0; k <= loop_num; k++) {
-                    const Vec3f& prev = k==0?
-                                        gcode_result.moves[move_id - 1].position :
-                                        gcode_result.moves[move_id].interpolation_points[k-1];
-                    const Vec3f& curr = k==interpolation_points_num?
-                                        gcode_result.moves[move_id].position :
-                                        gcode_result.moves[move_id].interpolation_points[k];
-                    const Vec3f& next = k < interpolation_points_num - 1?
-                                        gcode_result.moves[move_id].interpolation_points[k+1]:
-                                        (k == interpolation_points_num - 1? gcode_result.moves[move_id].position :
-                                        (gcode_result.moves[move_id + 1].is_arc_move_with_interpolation_points()?
-                                        gcode_result.moves[move_id + 1].interpolation_points[0] :
-                                        gcode_result.moves[move_id + 1].position));
-
-                    const Vec3f prev_dir = (curr - prev).normalized();
-                    const Vec3f prev_right = Vec3f(prev_dir.y(), -prev_dir.x(), 0.0f).normalized();
-                    const Vec3f prev_up = prev_right.cross(prev_dir);
-
-                    const Vec3f next_dir = (next - curr).normalized();
-
-                    const bool is_right_turn = prev_up.dot(prev_dir.cross(next_dir)) <= 0.0f;
-                    const float cos_dir = prev_dir.dot(next_dir);
-                    // whether the angle between adjacent segments is greater than 45 degrees
-                    const bool is_sharp = cos_dir < 0.7071068f;
-
-                    float displacement = 0.0f;
-                    if (cos_dir > -0.9998477f) {
-                        // if the angle between adjacent segments is smaller than 179 degrees
-                        Vec3f med_dir = (prev_dir + next_dir).normalized();
-                        displacement = half_width * ::tan(::acos(std::clamp(next_dir.dot(med_dir), -1.0f, 1.0f)));
-                    }
-
-                    const float sq_prev_length = (curr - prev).squaredNorm();
-                    const float sq_next_length = (next - curr).squaredNorm();
-                    const float sq_displacement = sqr(displacement);
-                    const bool can_displace = displacement > 0.0f && sq_displacement < sq_prev_length&& sq_displacement < sq_next_length;
-                    bool is_internal_point = interpolation_points_num > k;
-
-                    if (can_displace) {
-                        // displacement to apply to the vertices to match
-                        Vec3f displacement_vec = displacement * prev_dir;
-                        // matches inner corner vertices
-                        if (is_right_turn)
-                            match_right_vertices_with_internal_point(prev_sub_path, next_sub_path, curr_s_id, is_internal_point, k, vertex_size_floats, -displacement_vec);
-                        else
-                            match_left_vertices_with_internal_point(prev_sub_path, next_sub_path, curr_s_id, is_internal_point, k, vertex_size_floats, -displacement_vec);
-
-                        if (!is_sharp) {
-                            //BBS: matches outer corner vertices
-                            if (is_right_turn)
-                                match_left_vertices_with_internal_point(prev_sub_path, next_sub_path, curr_s_id, is_internal_point, k, vertex_size_floats, displacement_vec);
-                            else
-                                match_right_vertices_with_internal_point(prev_sub_path, next_sub_path, curr_s_id, is_internal_point, k, vertex_size_floats, displacement_vec);
-                        }
-                    }
-                }
-            }
-        }
-    };
-
 #if ENABLE_GCODE_VIEWER_STATISTICS
     auto load_vertices_time = std::chrono::high_resolution_clock::now();
     m_statistics.load_vertices = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
-
-    // smooth toolpaths corners for TBuffers using triangles
-    for (size_t i = 0; i < m_buffers.size(); ++i) {
-        const TBuffer& t_buffer = m_buffers[i];
-        if (t_buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Triangle) {
-            smooth_triangle_toolpaths_corners(t_buffer, vertices[i]);
-        }
-    }
 
     // dismiss, no more needed
     std::vector<size_t>().swap(biased_seams_ids);
@@ -2986,7 +2741,7 @@ void GCodeViewer::load_toolpaths(const GCodeProcessorResult& gcode_result, const
         // create another index buffer
         // BBS: get the point number and then judge whether the remaining buffer is enough
         size_t points_num = curr.is_arc_move_with_interpolation_points() ? curr.interpolation_points.size() + 1 : 1;
-        size_t indiced_size_to_add = (t_buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::BatchedModel) ? t_buffer.model.data.indices_size_bytes() : points_num * t_buffer.max_indices_per_segment_size_bytes();
+        size_t indiced_size_to_add = (t_buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::BatchedModel) ? t_buffer.model.data.indices_size_bytes() : points_num * t_buffer.indices_per_segment_size_bytes();
         if (i_multibuffer.back().size() * sizeof(IBufferType) >= IBUFFER_THRESHOLD_BYTES - indiced_size_to_add) {
             i_multibuffer.push_back(IndexBuffer());
             vbo_index_list.push_back(t_buffer.vertices.vbos[curr_vertex_buffer.first]);
@@ -3672,25 +3427,10 @@ void GCodeViewer::refresh_render_paths(bool keep_sequential_current_first, bool 
 
         if (size_in_indices == 0)
             continue;
-
-        if (buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Triangle) {
-            if (sub_path_id == 0 && delta_1st == 0)
-                size_in_indices += 6; // add 2 triangles for starting cap
-            if (sub_path_id == path.sub_paths.size() - 1 && path.sub_paths.back().last.s_id <= m_sequential_view.current.last)
-                size_in_indices += 6; // add 2 triangles for ending cap
-            if (delta_1st > 0)
-                size_in_indices -= 6; // remove 2 triangles for corner cap
-        }
-
         render_path->sizes.push_back(size_in_indices);
 
         if (buffer.render_primitive_type == TBuffer::ERenderPrimitiveType::Triangle) {
             delta_1st *= buffer.indices_per_segment();
-            if (delta_1st > 0) {
-                delta_1st += 6; // skip 2 triangles for corner cap
-                if (sub_path_id == 0)
-                    delta_1st += 6; // skip 2 triangles for starting cap
-            }
         }
 
         render_path->offsets.push_back(static_cast<size_t>((sub_path.first.i_id + delta_1st) * sizeof(IBufferType)));
@@ -3762,117 +3502,6 @@ void GCodeViewer::refresh_render_paths(bool keep_sequential_current_first, bool 
     sequential_view->endpoints = top_layer_only ? top_layer_endpoints : global_endpoints;
     sequential_view->current.first = !top_layer_only && keep_sequential_current_first ? std::clamp(sequential_view->current.first, sequential_view->endpoints.first, sequential_view->endpoints.last) : sequential_view->endpoints.first;
     sequential_view->global = global_endpoints;
-
-    // updates sequential range caps
-    std::array<SequentialRangeCap, 2>* sequential_range_caps = const_cast<std::array<SequentialRangeCap, 2>*>(&m_sequential_range_caps);
-    (*sequential_range_caps)[0].reset();
-    (*sequential_range_caps)[1].reset();
-
-    if (m_sequential_view.current.first != m_sequential_view.current.last) {
-        for (const auto& [tbuffer_id, ibuffer_id, path_id, sub_path_id] : paths) {
-            TBuffer& buffer = const_cast<TBuffer&>(m_buffers[tbuffer_id]);
-            if (buffer.render_primitive_type != TBuffer::ERenderPrimitiveType::Triangle)
-                continue;
-
-            const Path& path = buffer.paths[path_id];
-            const Path::Sub_Path& sub_path = path.sub_paths[sub_path_id];
-            if (m_sequential_view.current.last <= sub_path.first.s_id || sub_path.last.s_id <= m_sequential_view.current.first)
-                continue;
-
-            // update cap for first endpoint of current range
-            if (m_sequential_view.current.first > sub_path.first.s_id) {
-                SequentialRangeCap& cap = (*sequential_range_caps)[0];
-                const IBuffer& i_buffer = buffer.indices[ibuffer_id];
-                cap.buffer = &buffer;
-                cap.vbo = i_buffer.vbo;
-
-                // calculate offset into the index buffer
-                unsigned int offset = sub_path.first.i_id;
-                offset += 6; // add 2 triangles for corner cap
-                offset += static_cast<unsigned int>(m_sequential_view.current.first - sub_path.first.s_id) * buffer.indices_per_segment();
-                if (sub_path_id == 0)
-                    offset += 6; // add 2 triangles for starting cap
-
-                // extract indices from index buffer
-                std::array<IBufferType, 6> indices{ 0, 0, 0, 0, 0, 0 };
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, i_buffer.ibo));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 0) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[0])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 7) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[1])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 1) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[2])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 13) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[4])));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-                indices[3] = indices[0];
-                indices[5] = indices[1];
-
-                // send indices to gpu
-                glsafe(::glGenBuffers(1, &cap.ibo));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cap.ibo));
-                glsafe(::glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(IBufferType), indices.data(), GL_STATIC_DRAW));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-
-                // extract color from render path
-                size_t offset_bytes = offset * sizeof(IBufferType);
-                for (const RenderPath& render_path : buffer.render_paths) {
-                    if (render_path.ibuffer_id == ibuffer_id) {
-                        for (size_t j = 0; j < render_path.offsets.size(); ++j) {
-                            if (render_path.contains(offset_bytes)) {
-                                cap.color = render_path.color;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // update cap for last endpoint of current range
-            if (m_sequential_view.current.last < sub_path.last.s_id) {
-                SequentialRangeCap& cap = (*sequential_range_caps)[1];
-                const IBuffer& i_buffer = buffer.indices[ibuffer_id];
-                cap.buffer = &buffer;
-                cap.vbo = i_buffer.vbo;
-
-                // calculate offset into the index buffer
-                unsigned int offset = sub_path.first.i_id;
-                offset += 6; // add 2 triangles for corner cap
-                offset += static_cast<unsigned int>(m_sequential_view.current.last - 1 - sub_path.first.s_id) * buffer.indices_per_segment();
-                if (sub_path_id == 0)
-                    offset += 6; // add 2 triangles for starting cap
-
-                // extract indices from index buffer
-                std::array<IBufferType, 6> indices{ 0, 0, 0, 0, 0, 0 };
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, i_buffer.ibo));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 2) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[0])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 4) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[1])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 10) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[2])));
-                glsafe(::glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>((offset + 16) * sizeof(IBufferType)), static_cast<GLsizeiptr>(sizeof(IBufferType)), static_cast<void*>(&indices[5])));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-                indices[3] = indices[0];
-                indices[4] = indices[2];
-
-                // send indices to gpu
-                glsafe(::glGenBuffers(1, &cap.ibo));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cap.ibo));
-                glsafe(::glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(IBufferType), indices.data(), GL_STATIC_DRAW));
-                glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-
-                // extract color from render path
-                size_t offset_bytes = offset * sizeof(IBufferType);
-                for (const RenderPath& render_path : buffer.render_paths) {
-                    if (render_path.ibuffer_id == ibuffer_id) {
-                        for (size_t j = 0; j < render_path.offsets.size(); ++j) {
-                            if (render_path.contains(offset_bytes)) {
-                                cap.color = render_path.color;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if ((*sequential_range_caps)[0].is_renderable() && (*sequential_range_caps)[1].is_renderable())
-                break;
-        }
-    }
 
     //BBS
     enable_moves_slider(!paths.empty());
@@ -4179,63 +3808,6 @@ void GCodeViewer::render_toolpaths()
 
             wxGetApp().unbind_shader();
         }
-    }
-
-#if ENABLE_GCODE_VIEWER_STATISTICS
-    auto render_sequential_range_cap = [this]
-#else
-    auto render_sequential_range_cap = []
-#endif // ENABLE_GCODE_VIEWER_STATISTICS
-    (const SequentialRangeCap& cap) {
-        const auto& shader = wxGetApp().get_shader(cap.buffer->shader.c_str());
-        if (shader != nullptr) {
-            wxGetApp().bind_shader(shader);
-            const Camera& camera = wxGetApp().plater()->get_camera();
-            const Transform3d& view_matrix = camera.get_view_matrix();
-            shader->set_uniform("view_model_matrix", view_matrix);
-            shader->set_uniform("projection_matrix", camera.get_projection_matrix());
-            shader->set_uniform("normal_matrix", (Matrix3d)view_matrix.matrix().block(0, 0, 3, 3).inverse().transpose());
-
-            glsafe(::glBindBuffer(GL_ARRAY_BUFFER, cap.vbo));
-            const int position_id = shader->get_attrib_location("v_position");
-            if (position_id != -1) {
-                glsafe(::glVertexAttribPointer(position_id, cap.buffer->vertices.position_size_floats(), GL_FLOAT, GL_FALSE, cap.buffer->vertices.vertex_size_bytes(), (const void*)cap.buffer->vertices.position_offset_bytes()));
-                glsafe(::glEnableVertexAttribArray(position_id));
-            }
-            bool has_normals = cap.buffer->vertices.normal_size_floats() > 0;
-            int normal_id = -1;
-            if (has_normals) {
-                normal_id = shader->get_attrib_location("v_normal");
-                if (normal_id != -1) {
-                    glsafe(::glVertexAttribPointer(normal_id, cap.buffer->vertices.normal_size_floats(), GL_FLOAT, GL_FALSE, cap.buffer->vertices.vertex_size_bytes(), (const void*)cap.buffer->vertices.normal_offset_bytes()));
-                    glsafe(::glEnableVertexAttribArray(normal_id));
-                }
-            }
-
-            shader->set_uniform("uniform_color", cap.color);
-
-            glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cap.ibo));
-            glsafe(::glDrawElements(GL_TRIANGLES, (GLsizei)cap.indices_count(), GL_UNSIGNED_SHORT, nullptr));
-            glsafe(::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-
-#if ENABLE_GCODE_VIEWER_STATISTICS
-            ++m_statistics.gl_triangles_calls_count;
-#endif // ENABLE_GCODE_VIEWER_STATISTICS
-
-            if (normal_id != -1)
-                glsafe(::glDisableVertexAttribArray(normal_id));
-            if (position_id != -1)
-                glsafe(::glDisableVertexAttribArray(position_id));
-
-            glsafe(::glBindBuffer(GL_ARRAY_BUFFER, 0));
-
-            wxGetApp().unbind_shader();
-        }
-    };
-
-    for (unsigned int i = 0; i < 2; ++i) {
-        if (m_sequential_range_caps[i].is_renderable())
-            render_sequential_range_cap(m_sequential_range_caps[i]);
     }
 }
 
