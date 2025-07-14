@@ -346,7 +346,7 @@ class GCodeViewer
             {
             case ERenderPrimitiveType::Point:    { return 1; }
             case ERenderPrimitiveType::Line:     { return 2; }
-            case ERenderPrimitiveType::Triangle: { return 38; } // 3 indices x 16 triangles
+            case ERenderPrimitiveType::Triangle: { return 48; } // 3 indices x 16 triangles
             default:                             { return 0; }
             }
         }
