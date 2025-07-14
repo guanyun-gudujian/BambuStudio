@@ -346,22 +346,11 @@ class GCodeViewer
             {
             case ERenderPrimitiveType::Point:    { return 1; }
             case ERenderPrimitiveType::Line:     { return 2; }
-            case ERenderPrimitiveType::Triangle: { return 30; } // 3 indices x 10 triangles
+            case ERenderPrimitiveType::Triangle: { return 38; } // 3 indices x 16 triangles
             default:                             { return 0; }
             }
         }
         size_t indices_per_segment_size_bytes() const { return static_cast<size_t>(indices_per_segment() * sizeof(IBufferType)); }
-        unsigned int max_indices_per_segment() const {
-            switch (render_primitive_type)
-            {
-            case ERenderPrimitiveType::Point:    { return 1; }
-            case ERenderPrimitiveType::Line:     { return 2; }
-            case ERenderPrimitiveType::Triangle: { return 36; } // 3 indices x 12 triangles
-            default:                             { return 0; }
-            }
-        }
-        size_t max_indices_per_segment_size_bytes() const { return max_indices_per_segment() * sizeof(IBufferType); }
-
         bool has_data() const {
             switch (render_primitive_type)
             {
@@ -497,21 +486,6 @@ class GCodeViewer
                 return true;
             return false;
         }
-    };
-
-    // used to render the toolpath caps of the current sequential range
-    // (i.e. when sliding on the horizontal slider)
-    struct SequentialRangeCap
-    {
-        TBuffer* buffer{ nullptr };
-        unsigned int ibo{ 0 };
-        unsigned int vbo{ 0 };
-        Color color;
-
-        ~SequentialRangeCap();
-        bool is_renderable() const { return buffer != nullptr; }
-        void reset();
-        size_t indices_count() const { return 6; }
     };
 
 #if ENABLE_GCODE_VIEWER_STATISTICS
@@ -807,12 +781,10 @@ private:
     Statistics m_statistics;
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
     GCodeProcessorResult::SettingsIds m_settings_ids;
-    std::array<SequentialRangeCap, 2> m_sequential_range_caps;
 
     std::vector<CustomGCode::Item> m_custom_gcode_per_print_z;
 
     bool m_contained_in_bed{ true };
-    bool m_is_dark = false;
 
 public:
     GCodeViewer();
