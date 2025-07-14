@@ -785,6 +785,7 @@ private:
     std::vector<CustomGCode::Item> m_custom_gcode_per_print_z;
 
     bool m_contained_in_bed{ true };
+    bool m_is_dark = false;
 
 public:
     GCodeViewer();
