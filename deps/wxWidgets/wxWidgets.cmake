@@ -6,9 +6,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endif ()
     set(_wx_toolkit "-DwxBUILD_TOOLKIT=gtk${_gtk_ver}")
     set(_wx_private_font "-DwxUSE_PRIVATE_FONTS=1")
-    set(_wx_egl "-DwxUSE_GLCANVAS_EGL=OFF")
-else ()
-    set(_wx_egl "")
 endif()
 
 if (MSVC)
@@ -53,7 +50,7 @@ bambustudio_add_cmake_project(wxWidgets
         -DwxUSE_LIBJPEG=sys
         -DwxUSE_LIBTIFF=sys
         -DwxUSE_EXPAT=sys
-        ${_wx_egl}
+        -DwxUSE_GLCANVAS_EGL=OFF
 )
 
 if (MSVC)
