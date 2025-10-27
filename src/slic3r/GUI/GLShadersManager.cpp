@@ -98,7 +98,8 @@ std::pair<bool, std::string> GLShadersManager::init()
 
     valid &= append_shader("gaussian_blur33", { glsl_version_prefix + "gaussian_blur33.vs", glsl_version_prefix + "gaussian_blur33.fs" });
 
-    if (gl31) {
+    const bool gl32 = GUI::wxGetApp().is_gl_version_greater_or_equal_to(3, 2);
+    if (gl32) {
         valid &= append_shader("gcode", { glsl_version_prefix + "gcode.vs", glsl_version_prefix + "gcode.fs" });
         valid &= append_shader("gcode_options", { glsl_version_prefix + "gcode_options.vs", glsl_version_prefix + "gcode_options.fs" });
         valid &= append_shader("gcode_custom_effect", { glsl_version_prefix + "gcode.vs", glsl_version_prefix + "gcode_custom_effect.fs" });
