@@ -417,7 +417,7 @@ namespace Slic3r {
                     if (p_ogl_manager) {
                         if (p_ogl_manager->init_gl()) {
                             const auto& gl_version = p_ogl_manager->get_gl_info().get_formated_gl_version();
-                            if (b_advanced_gcode_viewer_enabled && gl_version >= 31) {
+                            if (b_advanced_gcode_viewer_enabled && gl_version >= 32) {
                                 m_p_renderer = std::make_shared<gcode::AdvancedRenderer>();
                             }
                             else {
